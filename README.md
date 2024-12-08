@@ -1,5 +1,5 @@
 # uniprot-scraper
- for emma <3
+ for emma :)
 
  ## How to run program
  1. Open terminal
@@ -10,3 +10,7 @@
 python3 variants.py '(insert variant name here)'
  ```
  4. Tables will be exported to /tables
+
+ with love,
+ 
+ connor <3
