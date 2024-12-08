@@ -1,12 +1,11 @@
 import pandas as pd
-import sys
 import requests
 import json
 
 def main(accession):
     print('🫡  Sending API request to Uniprot...')
 
-    gene = requests.get(f'https://www.ebi.ac.uk/proteins/api/variation/{accession}?format=json')
+    gene = requests.get(f'https://www.ebi.ac.uk/proteins/api/variation/{accession}?format=json', timeout=30)
     
     if gene.status_code == 200:
         print('😃 Request to Uniprot successful.')
@@ -46,7 +45,7 @@ def main(accession):
             if 'descriptions' in feature:
                 for description in feature['descriptions']:
                     if 'value' in description:
-                        descriptions += description['value']
+                        descriptions += description['value'] + ', '
 
             if 'mutatedType' in feature:
                 change = feature['wildType'] + feature['begin'] + feature['mutatedType']
@@ -68,14 +67,14 @@ def main(accession):
 
             df = pd.concat([df, pd.DataFrame(desired_features)], ignore_index=True)
         
-        print(df)
         df.to_excel(f'tables/{accession}.xlsx', sheet_name=accession)
         print('🤓 Excel table generated!')
         return df
     
-    print(f"😢 Error with status code {gene.status_code} returned with message:\n{gene.reason}")
-    return 
+    print(f"😢 Error with status code {gene.status_code} returned with message: {gene.reason}\nPlease try again:")
+    retry = input('👩‍🔬 What variant name would you like to scrape for?\n')
+    main(retry) 
     
 if __name__ == '__main__':
-    arg1 = sys.argv[1]
-    main(arg1)
+    prompt = input('👩‍🔬 What variant name would you like to scrape for?\n')
+    main(prompt)
