@@ -38,91 +38,101 @@ def polyphen_score(accession: str, genomic_locations: dict):
 
                     polyphen_df = pd.concat([polyphen_df, pd.DataFrame(excel_columns)], ignore_index=True)
 
-    with pd.ExcelWriter(f'tables/{accession}.xlsx', engine='openpyxl', mode='a') as writer: # pylint: disable=abstract-class-instantiated
+    with pd.ExcelWriter(f'tables/{accession}.xlsx', engine='openpyxl', mode='a', if_sheet_exists='new') as writer: # pylint: disable=abstract-class-instantiated
         polyphen_df.to_excel(writer, sheet_name='polyphen_scores', index=False)
 
-    return polyphen_df
+    #return polyphen_df
 
-def main(accession: str):
-    print('🫡  Sending API request to Uniprot...')
+def main(accessions: list):
+    failed_accessions = []
+    for accession in accessions:
+        print(f'🫡  Sending API request to Uniprot for {accession}...')
 
-    gene = requests.get(f'https://www.ebi.ac.uk/proteins/api/variation/{accession}?format=json', timeout=30)
-    
-    if gene.status_code == 200:
-        print('😃 Request to Uniprot successful.')
-        gene_json = json.loads(gene.text)
-
-        features = gene_json['features']
-
-        df = pd.DataFrame(columns=['Position', 'Change', 'Description', 'Genomic Location', 'Significance', 'Source(s) of Significance', 'Significance Review Status'])
-
-        for feature in features:
+        gene = requests.get(f'https://www.ebi.ac.uk/proteins/api/variation/{accession}?format=json', timeout=30)
         
-            skip = True
+        if gene.status_code == 200:
+            print('😃 Request to Uniprot successful.')
+            gene_json = json.loads(gene.text)
 
-            clinical_significance = ''
-            sources = ''
-            review_status = ''
-            genomic_location = ['unknown']
-            descriptions = ''
-            change = ''
+            features = gene_json['features']
 
-            if 'clinicalSignificances' in feature:
-                for significance in feature['clinicalSignificances']:
-                    significance_type = significance['type']
-                    if significance_type == 'Likely pathogenic' or significance_type == 'Pathogenic' or significance_type == 'Variant of uncertain significance':
-                        skip = False
-                        clinical_significance += significance_type
-                        sources += ', '.join(significance['sources'])
-                        if 'reviewStatus' in significance:
-                            review_status += significance['reviewStatus']
-                        
-            else:
-                continue
+            df = pd.DataFrame(columns=['Position', 'Change', 'Description', 'Genomic Location', 'Significance', 'Source(s) of Significance', 'Significance Review Status'])
 
-            if(skip):
-                continue
+            for feature in features:
             
-            if 'descriptions' in feature:
-                for description in feature['descriptions']:
-                    if 'value' in description:
-                        descriptions += description['value'] + ', '
+                skip = True
 
-            if 'mutatedType' in feature:
-                change = feature['wildType'] + feature['begin'] + feature['mutatedType']
-            else:
-                change = feature['wildType'] + feature['begin'] + 'missing'
+                clinical_significance = ''
+                sources = ''
+                review_status = ''
+                genomic_location = ['unknown']
+                descriptions = ''
+                change = ''
 
-            if 'genomicLocation' in feature:
-                genomic_location = feature['genomicLocation']
+                if 'clinicalSignificances' in feature:
+                    for significance in feature['clinicalSignificances']:
+                        significance_type = significance['type']
+                        if significance_type == 'Likely pathogenic' or significance_type == 'Pathogenic' or significance_type == 'Variant of uncertain significance':
+                            skip = False
+                            clinical_significance += significance_type
+                            sources += ', '.join(significance['sources'])
+                            if 'reviewStatus' in significance:
+                                review_status += significance['reviewStatus']
+                            
+                else:
+                    continue
+
+                if(skip):
+                    continue
+                
+                if 'descriptions' in feature:
+                    for description in feature['descriptions']:
+                        if 'value' in description:
+                            descriptions += description['value'] + ', '
+
+                if 'mutatedType' in feature:
+                    change = feature['wildType'] + feature['begin'] + feature['mutatedType']
+                else:
+                    change = feature['wildType'] + feature['begin'] + 'missing'
+
+                if 'genomicLocation' in feature:
+                    genomic_location = feature['genomicLocation']
+                
+                desired_features = {
+                    'Position': int(feature['begin']),
+                    'Change': change,
+                    'Description': descriptions,
+                    'Genomic Location': genomic_location,
+                    'Significance': clinical_significance,
+                    'Source(s) of Signifiance': sources,
+                    'Significance Review Status': review_status
+                }
+
+                df = pd.concat([df, pd.DataFrame(desired_features)], ignore_index=True)
             
-            desired_features = {
-                'Position': int(feature['begin']),
-                'Change': change,
-                'Description': descriptions,
-                'Genomic Location': genomic_location,
-                'Significance': clinical_significance,
-                'Source(s) of Signifiance': sources,
-                'Significance Review Status': review_status
-            }
+            df.to_excel(f'tables/{accession}.xlsx', sheet_name='significances')
+            mask = df['Significance'] != 'Variant of uncertain significance'
+            gene_locs = df[~mask]
+            
+            gene_locs_list = gene_locs['Genomic Location'].tolist()
 
-            df = pd.concat([df, pd.DataFrame(desired_features)], ignore_index=True)
-        
-        df.to_excel(f'tables/{accession}.xlsx', sheet_name='significances')
-        mask = df['Significance'] != 'Variant of uncertain significance'
-        gene_locs = df[~mask]
+            if len(gene_locs_list) > 200:
+                print("🤬 Provided gene variant has greater than 200 gene locations. Polyphen scores will appear in multiple sheets.")
+                for i in range(0, len(gene_locs_list), 200):
+                    genomic_locations = json.dumps({"hgvs_notations": gene_locs_list[i:i + 200]})
+                    polyphen_score(accession, genomic_locations)
 
-        genomic_locations = json.dumps({"hgvs_notations": gene_locs['Genomic Location'].tolist()})
+            print('🤓 Excel table generated!')
 
-        polyphen_score(accession, genomic_locations)
-        
-        print('🤓 Excel table generated!')
-        return df
-    
-    print(f"😢 Error with status code {gene.status_code} returned with message: {gene.reason}\nPlease try again:")
-    retry = input('👩‍🔬 What variant name would you like to scrape for?\n')
-    main(retry) 
-    
+        else:
+            print(f"😢 Error with status code {gene.status_code} returned with message: {gene.reason}\n")
+            failed_accessions.append(accession)
+
+    if len(failed_accessions) > 0:
+        print(f"😔 Here's a list of variants we were unable to scrape: {failed_accessions}")
+
 if __name__ == '__main__':
-    prompt = input('👩‍🔬 What variant name would you like to scrape for?\n')
-    main(prompt)
+    prompt = input('👩‍🔬 What variant name(s) would you like to scrape for? Please seperate each name by a comma.\n').split(",")
+    prompt_list = [string.strip() for string in prompt]
+    main(prompt_list)
+    print("😺 Scrape complete!")
