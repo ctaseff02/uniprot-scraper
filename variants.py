@@ -1,8 +1,49 @@
 import pandas as pd
 import requests
 import json
+import sys
 
-def main(accession):
+def polyphen_score(accession: str, genomic_locations: dict):
+    print('🧐 Sending API request to Ensembl VEP...')
+    server = "https://rest.ensembl.org"
+    ext = "/vep/human/hgvs"
+    headers={ "Content-Type" : "application/json", "Accept" : "application/json"}
+    r = requests.post(server+ext, headers=headers, data=genomic_locations, timeout=30)
+ 
+    if not r.ok:
+        print('👺 API call failed for some reason.')
+        r.raise_for_status()
+        sys.exit()  
+    
+    print('🤩 Request to Ensembl VEP successful.')
+    decoded = r.json()
+
+    polyphen_df = pd.DataFrame(columns=['Genomic Location', 'Polyphen Score'])
+
+    _input = '?'
+    polyphen_score = 0
+
+    for vep in decoded:
+        if 'input' in vep:
+            _input = vep['input']
+        if 'transcript_consequences' in vep:
+            for consequence in vep['transcript_consequences']:
+                if ('polyphen_score' in consequence) & ('missense_variant' in consequence['consequence_terms']):
+                    polyphen_score = consequence['polyphen_score']
+
+                    excel_columns = {
+                        'Genomic Location': [_input],    
+                        'Polyphen Score': [polyphen_score]
+                    }
+
+                    polyphen_df = pd.concat([polyphen_df, pd.DataFrame(excel_columns)], ignore_index=True)
+
+    with pd.ExcelWriter(f'tables/{accession}.xlsx', engine='openpyxl', mode='a') as writer: # pylint: disable=abstract-class-instantiated
+        polyphen_df.to_excel(writer, sheet_name='polyphen_scores', index=False)
+
+    return polyphen_df
+
+def main(accession: str):
     print('🫡  Sending API request to Uniprot...')
 
     gene = requests.get(f'https://www.ebi.ac.uk/proteins/api/variation/{accession}?format=json', timeout=30)
@@ -67,7 +108,14 @@ def main(accession):
 
             df = pd.concat([df, pd.DataFrame(desired_features)], ignore_index=True)
         
-        df.to_excel(f'tables/{accession}.xlsx', sheet_name=accession)
+        df.to_excel(f'tables/{accession}.xlsx', sheet_name='significances')
+        mask = df['Significance'] != 'Variant of uncertain significance'
+        gene_locs = df[~mask]
+
+        genomic_locations = json.dumps({"hgvs_notations": gene_locs['Genomic Location'].tolist()})
+
+        polyphen_score(accession, genomic_locations)
+        
         print('🤓 Excel table generated!')
         return df
     
