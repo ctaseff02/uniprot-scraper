@@ -7,7 +7,7 @@
  3. Run the command:
 
  ```
-python3 variants.py '(insert variant name here)'
+python3 variants.py
  ```
  4. Tables will be exported to /tables
 
