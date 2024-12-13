@@ -45,8 +45,9 @@ def polyphen_score(accession: str, genomic_locations: dict):
 
 def main(accessions: list):
     failed_accessions = []
+    count = 0
     for accession in accessions:
-        print(f'🫡  Sending API request to Uniprot for {accession}...')
+        print(f'🫡  Sending API request to Uniprot for {accession}...                   {count}/' + str(len(accessions)))
 
         gene = requests.get(f'https://www.ebi.ac.uk/proteins/api/variation/{accession}?format=json', timeout=30)
         
@@ -116,11 +117,19 @@ def main(accessions: list):
             
             gene_locs_list = gene_locs['Genomic Location'].tolist()
 
+            genomic_locations = json.dumps({"hgvs_notations": gene_locs['Genomic Location'].tolist()})
+
+            if 'unknown' in genomic_locations:
+                print('Unitprot found no genomic locations.')
+                continue
+            
             if len(gene_locs_list) > 200:
                 print("🤬 Provided gene variant has greater than 200 gene locations. Polyphen scores will appear in multiple sheets.")
                 for i in range(0, len(gene_locs_list), 200):
-                    genomic_locations = json.dumps({"hgvs_notations": gene_locs_list[i:i + 200]})
-                    polyphen_score(accession, genomic_locations)
+                    genomic_locations_subset = json.dumps({"hgvs_notations": gene_locs_list[i:i + 200]})
+                    polyphen_score(accession, genomic_locations_subset)
+            else:
+                polyphen_score(accession, genomic_locations)
 
             print('🤓 Excel table generated!')
 
@@ -128,11 +137,20 @@ def main(accessions: list):
             print(f"😢 Error with status code {gene.status_code} returned with message: {gene.reason}\n")
             failed_accessions.append(accession)
 
+        count += 1
+
     if len(failed_accessions) > 0:
         print(f"😔 Here's a list of variants we were unable to scrape: {failed_accessions}")
 
 if __name__ == '__main__':
     prompt = input('👩‍🔬 What variant name(s) would you like to scrape for? Please seperate each name by a comma.\n').split(",")
-    prompt_list = [string.strip() for string in prompt]
-    main(prompt_list)
+    unique_prompt = []
+    prompt_list = [string.strip() for string in unique_prompt]
+
+    for item in prompt:
+        if item not in unique_prompt:
+            unique_prompt.append(item)
+    
+
+    main(unique_prompt)
     print("😺 Scrape complete!")
